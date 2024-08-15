@@ -1,33 +1,81 @@
-
+import EditCourseForm from "@/components/courses/EditCourseForm";
+import AlertBanner from "@/components/custom/AlertBanner";
 import { db } from "@/lib/db";
-import getCoursesByCategory from "../actions/getCourses";
-import Categories from "@/components/custom/Categories";
-import CourseCard from "@/components/courses/CourseCard";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
-export default async function Home() {
+const CourseBasics = async ({ params }: { params: { courseId: string } }) => {
+  const { userId } = auth();
+
+  if (!userId) {
+    return redirect("/sign-in");
+  }
+
+  const course = await db.course.findUnique({
+    where: {
+      id: params.courseId,
+      instructorId: userId,
+    },
+    include: {
+      sections: true,
+    },
+  });
+
+  if (!course) {
+    return redirect("/instructor/courses");
+  }
+
   const categories = await db.category.findMany({
     orderBy: {
       name: "asc",
     },
     include: {
-      subCategories: {
-        orderBy: {
-          name: "asc",
-        },
-      },
+      subCategories: true,
     },
   });
 
-  const courses = await getCoursesByCategory(null);
+  const levels = await db.level.findMany();
+
+  const requiredFields = [
+    course.title,
+    course.description,
+    course.categoryId,
+    course.subCategoryId,
+    course.levelId,
+    course.imageUrl,
+    course.price,
+    course.sections.some((section) => section.isPublished),
+  ];
+  const requiredFieldsCount = requiredFields.length;
+  const missingFields = requiredFields.filter((field) => !Boolean(field));
+  const missingFieldsCount = missingFields.length;
+  const isCompleted = requiredFields.every(Boolean);
+
   return (
-    <div className="md:mt-5 md:px-10 xl:px-16 pb-16">
-      <Categories categories={categories} selectedCategory={null} />
-      <div className="flex flex-wrap gap-7 justify-center">
-        {courses.map((course) => (
-          <CourseCard key={course.id} course={course} />
-        ))}
-      </div>
-      
+    <div className="px-10">
+      <AlertBanner
+        isCompleted={isCompleted}
+        missingFieldsCount={missingFieldsCount}
+        requiredFieldsCount={requiredFieldsCount}
+      />
+      <EditCourseForm
+        course={course}
+        categories={categories.map((category) => ({
+          label: category.name,
+          value: category.id,
+          subCategories: category.subCategories.map((subcategory) => ({
+            label: subcategory.name,
+            value: subcategory.id,
+          })),
+        }))}
+        levels={levels.map((level) => ({
+          label: level.name,
+          value: level.id,
+        }))}
+        isCompleted={isCompleted}
+      />
     </div>
   );
-}
+};
+
+export default CourseBasics;
